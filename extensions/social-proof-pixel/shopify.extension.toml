@@ -1,0 +1,9 @@
+name = "social-proof-pixel"
+type = "web_pixel_extension"
+uid = "c61164da-ae78-0e43-8638-94ec87c8c95d62c2a53d"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+

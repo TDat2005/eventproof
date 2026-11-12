@@ -1,0 +1,6 @@
+packages:
+  - 'extensions/*'
+  - 'server'
+allowBuilds:
+  esbuild: true
+  protobufjs: true

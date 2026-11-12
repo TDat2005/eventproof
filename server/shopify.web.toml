@@ -1,0 +1,7 @@
+roles = ["frontend", "backend"]
+
+[commands]
+dev = "pnpm run start:dev"
+build = "pnpm run build"
+
+port = 3000

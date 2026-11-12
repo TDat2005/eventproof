@@ -1,0 +1,127 @@
+{% comment %}Social Proof: inline metrics and a floating activity panel.{% endcomment %}
+{% capture people_icon %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v2"/></svg>{% endcapture %}
+{% capture views_icon %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>{% endcapture %}
+{% capture sales_icon %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14l1 14H4L5 7ZM9 8V6a3 3 0 0 1 6 0v2"/><path d="m9 14 2 2 4-4"/></svg>{% endcapture %}
+
+<div class="ep-proof" {{ block.shopify_attributes }} style="--sp-bg: {{ block.settings.bg_color }}; --sp-text: {{ block.settings.text_color }}; --sp-accent: {{ block.settings.accent_color }}; --sp-tint: {{ block.settings.accent_color | color_modify: 'alpha', 0.07 }}; --sp-border: {{ block.settings.text_color | color_modify: 'alpha', 0.1 }};">
+  {% assign surfaces = 'inline,floating' | split: ',' %}
+  {% assign metrics = 'recent,daily,orders' | split: ',' %}
+  {% for surface in surfaces %}
+    {% if block.settings.display_style == 'both' or block.settings.display_style == surface %}
+      {% if surface == 'inline' %}
+        {% assign id_prefix = 'sp' %}
+        <section id="sp-widget-{{ block.id }}" class="sp-inline-card" aria-label="Hoạt động của sản phẩm" style="display: none;">
+          <div class="sp-card-header">
+            <h2 class="sp-heading">Hoạt động của sản phẩm</h2>
+            <span class="sp-live-label"><span class="sp-pulse-dot" aria-hidden="true"></span>Cập nhật tự động</span>
+          </div>
+      {% else %}
+        {% assign id_prefix = 'sp-side' %}
+        <div class="sp-side-tab-container" data-side="{{ block.settings.floating_side }}">
+          <button type="button" id="sp-side-trigger-{{ block.id }}" class="sp-side-trigger" aria-label="Xem hoạt động sản phẩm" aria-expanded="false" aria-controls="sp-side-panel-{{ block.id }}" style="display: none;">
+            <span class="sp-side-tab-icon">{{ people_icon }}<span class="sp-pulse-dot" aria-hidden="true"></span></span>
+            <span id="sp-side-count-{{ block.id }}" class="sp-side-badge-count">0</span>
+          </button>
+          <aside id="sp-side-panel-{{ block.id }}" class="sp-side-panel" aria-labelledby="sp-panel-title-{{ block.id }}" inert>
+            <div class="sp-panel-header">
+              <div><span class="sp-eyebrow">Sản phẩm này</span><h2 id="sp-panel-title-{{ block.id }}" class="sp-heading">Hoạt động gần đây</h2></div>
+              <button type="button" id="sp-panel-close-{{ block.id }}" class="sp-panel-close" aria-label="Đóng bảng hoạt động">&times;</button>
+            </div>
+      {% endif %}
+      <div class="sp-widget-items">
+        {% for metric in metrics %}
+          {% case metric %}
+            {% when 'recent' %}
+              {% assign metric_label = 'người xem gần đây' %}
+              {% assign metric_note = 'Trong 5 phút gần nhất' %}
+              {% assign metric_icon = people_icon %}
+            {% when 'daily' %}
+              {% assign metric_label = 'lượt xem hôm nay' %}
+              {% assign metric_note = 'Theo múi giờ cửa hàng' %}
+              {% assign metric_icon = views_icon %}
+            {% when 'orders' %}
+              {% assign metric_label = 'sản phẩm đã bán' %}
+              {% assign metric_note = 'Trong 24 giờ gần nhất' %}
+              {% assign metric_icon = sales_icon %}
+          {% endcase %}
+          <div id="{{ id_prefix }}-{{ metric }}-{{ block.id }}" class="sp-item" style="display: none;">
+            <span class="sp-metric-icon">{{ metric_icon }}</span>
+            <span class="sp-metric-copy">
+              <span class="sp-stat-line"><strong id="{{ id_prefix }}-{{ metric }}-count-{{ block.id }}" class="sp-count">0</strong><span class="sp-metric-label">{{ metric_label }}</span></span>
+              <span class="sp-metric-note">{{ metric_note }}</span>
+            </span>
+          </div>
+        {% endfor %}
+      </div>
+      {% if surface == 'inline' %}</section>{% else %}</aside></div>{% endif %}
+    {% endif %}
+  {% endfor %}
+  <script src="{{ 'social-proof.js' | asset_url }}" defer data-block-id="{{ block.id }}" data-product-id="{{ product.id }}" data-shop="{{ shop.permanent_domain }}"></script>
+</div>
+
+{% schema %}
+{
+  "name": "Social Proof Box",
+  "target": "section",
+  "templates": [
+    "product"
+  ],
+  "settings": [
+    {
+      "type": "select",
+      "id": "display_style",
+      "label": "Kiểu hiển thị",
+      "options": [
+        {
+          "value": "both",
+          "label": "Cả hai (Khung trong trang + Tab bên lề)"
+        },
+        {
+          "value": "floating",
+          "label": "Chỉ tab ghim bên lề"
+        },
+        {
+          "value": "inline",
+          "label": "Chỉ khung trong trang"
+        }
+      ],
+      "default": "both"
+    },
+    {
+      "type": "select",
+      "id": "floating_side",
+      "label": "Vị trí tab bên lề",
+      "options": [
+        {
+          "value": "right",
+          "label": "Bên phải (Right)"
+        },
+        {
+          "value": "left",
+          "label": "Bên trái (Left)"
+        }
+      ],
+      "default": "right"
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Màu nền",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Màu chữ",
+      "default": "#1e293b"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Màu điểm nhấn (Xanh lá)",
+      "default": "#16a34a"
+    }
+  ],
+  "stylesheet": "social-proof.css"
+}
+{% endschema %}

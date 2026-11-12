@@ -1,0 +1,30 @@
+{
+  "name": "event-proof",
+  "version": "1.0.0",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "extensions/*",
+    "server"
+  ],
+  "scripts": {
+    "shopify": "shopify",
+    "build": "shopify app build",
+    "dev": "shopify app dev",
+    "info": "shopify app info",
+    "generate": "shopify app generate",
+    "deploy": "shopify app deploy",
+    "server:dev": "pnpm --filter server run start:dev",
+    "server:build": "pnpm --filter server run build",
+    "server:start": "pnpm --filter server run start:prod",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@shopify/plugin-cloudflare": "^5.0.1"
+  },
+  "trustedDependencies": [
+    "@shopify/plugin-cloudflare"
+  ],
+  "author": "tiend",
+  "private": true
+}
