@@ -44,33 +44,34 @@ export class SettingsController {
     @Body() body: Record<string, unknown>,
   ) {
     const shop = this.auth.verifyAdmin(authorization);
-    const connection = await this.connections.resolveConnection(shop);
-    if (!body || typeof body !== 'object' || Array.isArray(body))
-      throw new BadRequestException('Invalid settings');
-    const allowed = [
-      'recentEnabled',
-      'dailyEnabled',
-      'orderEnabled',
-      'recentThreshold',
-      'dailyThreshold',
-      'orderThreshold',
-    ];
-    for (const [key, value] of Object.entries(body)) {
-      if (!allowed.includes(key))
-        throw new BadRequestException(`Unknown setting: ${key}`);
-      if (
-        key.endsWith('Enabled')
-          ? typeof value !== 'boolean'
-          : !Number.isSafeInteger(value) ||
-            Number(value) < 1 ||
-            Number(value) > 1_000_000
-      ) {
-        throw new BadRequestException(`Invalid setting: ${key}`);
+    return this.connections.withActiveConnection(shop, async (connection) => {
+      if (!body || typeof body !== 'object' || Array.isArray(body))
+        throw new BadRequestException('Invalid settings');
+      const allowed = [
+        'recentEnabled',
+        'dailyEnabled',
+        'orderEnabled',
+        'recentThreshold',
+        'dailyThreshold',
+        'orderThreshold',
+      ];
+      for (const [key, value] of Object.entries(body)) {
+        if (!allowed.includes(key))
+          throw new BadRequestException(`Unknown setting: ${key}`);
+        if (
+          key.endsWith('Enabled')
+            ? typeof value !== 'boolean'
+            : !Number.isSafeInteger(value) ||
+              Number(value) < 1 ||
+              Number(value) > 1_000_000
+        ) {
+          throw new BadRequestException(`Invalid setting: ${key}`);
+        }
       }
-    }
-    return this.settings.updateSettings({
-      ...body,
-      tenantId: connection.tenantId,
+      return this.settings.updateSettings({
+        ...body,
+        tenantId: connection.tenantId,
+      });
     });
   }
 }

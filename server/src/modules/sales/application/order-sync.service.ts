@@ -45,52 +45,54 @@ export class OrderSyncService {
   }
 
   async recordCreatedOrder(dto: IncomingOrderDto): Promise<void> {
-    const connection = await this.connectionsService.resolveConnection(
+    return this.connectionsService.withActiveConnection(
       dto.shop,
-    );
-    const tenantId = connection.tenantId;
-    const orderId = internalId('order', connection.id, dto.externalOrderId);
+      async (connection) => {
+        const tenantId = connection.tenantId;
+        const orderId = internalId('order', connection.id, dto.externalOrderId);
 
-    const snapshot: OrderSnapshotEntity = {
-      id: orderId,
-      tenantId,
-      connectionId: connection.id,
-      externalOrderId: dto.externalOrderId,
-      cancelled: false,
-      testOrder: dto.testOrder,
-      orderCreatedAt: dto.orderCreatedAt,
-      sourceUpdatedAt: dto.orderCreatedAt,
-      syncGeneration: 1,
-    };
+        const snapshot: OrderSnapshotEntity = {
+          id: orderId,
+          tenantId,
+          connectionId: connection.id,
+          externalOrderId: dto.externalOrderId,
+          cancelled: false,
+          testOrder: dto.testOrder,
+          orderCreatedAt: dto.orderCreatedAt,
+          sourceUpdatedAt: dto.orderCreatedAt,
+          syncGeneration: 1,
+        };
 
-    const lines: OrderLineEntity[] = [];
+        const lines: OrderLineEntity[] = [];
 
-    for (const item of dto.lineItems) {
-      const product = await this.catalogService.resolveProduct(
-        tenantId,
-        connection.id,
-        item.externalProductId,
-        'PRODUCT',
-      );
+        for (const item of dto.lineItems) {
+          const product = await this.catalogService.resolveProduct(
+            tenantId,
+            connection.id,
+            item.externalProductId,
+            'PRODUCT',
+          );
 
-      lines.push({
-        id: internalId('line', orderId, item.lineItemId),
-        tenantId,
-        orderId,
-        lineItemId: item.lineItemId,
-        productId: product.id,
-        currentQuantity: item.quantity,
-      });
-    }
+          lines.push({
+            id: internalId('line', orderId, item.lineItemId),
+            tenantId,
+            orderId,
+            lineItemId: item.lineItemId,
+            productId: product.id,
+            currentQuantity: item.quantity,
+          });
+        }
 
-    const includeTestOrder = this.includesTestOrders(dto.shop);
-    await this.orderRepository.saveCreatedOrder(
-      snapshot,
-      lines,
-      includeTestOrder,
-    );
-    this.logger.log(
-      `Processed created order ${dto.externalOrderId} for ${dto.shop}: ${lines.length} items`,
+        const includeTestOrder = this.includesTestOrders(dto.shop);
+        await this.orderRepository.saveCreatedOrder(
+          snapshot,
+          lines,
+          includeTestOrder,
+        );
+        this.logger.log(
+          `Processed created order ${dto.externalOrderId} for ${dto.shop}: ${lines.length} items`,
+        );
+      },
     );
   }
 

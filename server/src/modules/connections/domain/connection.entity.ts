@@ -7,4 +7,6 @@ export interface StoreConnectionEntity {
   timezoneIana: string;
   active: boolean;
   createdAt: Date;
+  installedAt?: Date;
+  uninstalledAt?: Date | null;
 }

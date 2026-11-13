@@ -16,6 +16,8 @@ process.env.NODE_ENV = 'test';
 process.env.SALES_TEST_ORDER_SHOPS = '';
 const { AppModule } = await import('../dist/app.module.js');
 const { DbService } = await import('../dist/db/db.service.js');
+const { UninstallCleanupJob } =
+  await import('../dist/modules/connections/application/uninstall-cleanup.service.js');
 const { RedisService } = await import('../dist/redis/redis.service.js');
 const { DrizzleViewRepository } =
   await import('../dist/modules/engagement/infrastructure/drizzle-view.repository.js');
@@ -107,16 +109,33 @@ before(async () => {
       rows[0]['Create Table'].replace('CREATE TABLE', 'CREATE TEMPORARY TABLE'),
     );
   }
+  const [columns] = await conn.query('SHOW COLUMNS FROM store_connections');
+  for (const name of [
+    'installed_at',
+    'uninstalled_at',
+    'redact_requested_at',
+  ]) {
+    if (!columns.some((column) => column.Field === name))
+      await conn.query(
+        `ALTER TABLE store_connections ADD COLUMN ${name} DATETIME(3) ${name === 'installed_at' ? 'NOT NULL DEFAULT CURRENT_TIMESTAMP(3)' : 'NULL'}`,
+      );
+  }
   db = drizzle(conn);
   redis = new Redis({
     host: process.env.REDIS_HOST || 'localhost',
     port: Number(process.env.REDIS_PORT) || 6380,
   });
+  const dbService = new DbService();
+  dbService.database = db;
+  dbService.onModuleInit = () => {};
+  dbService.onModuleDestroy = () => {};
   const module = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(DbService)
-    .useValue({ db })
+    .useValue(dbService)
     .overrideProvider(RedisService)
     .useValue({ getClient: () => redis })
+    .overrideProvider(UninstallCleanupJob)
+    .useValue({})
     .compile();
   app = module.createNestApplication({ rawBody: true, logger: false });
   await app.init();
@@ -292,7 +311,8 @@ void test('test-order counting is allowed only for explicit development shops an
   await activate();
   const payload = {
     id: 'dev-order',
-    created_at: new Date().toISOString(),
+    // DATETIME rounds fractional seconds; keep fixture safely in the past.
+    created_at: new Date(Date.now() - 60_000).toISOString(),
     test: true,
     line_items: [{ id: 'dev-line', product_id: '123', quantity: 2 }],
   };
@@ -341,6 +361,7 @@ void test('tenant isolation and uninstall prevent subsequent storefront tracking
     .set('Content-Type', 'application/json')
     .set('x-shopify-shop-domain', shop)
     .set('x-shopify-topic', 'app/uninstalled')
+    .set('x-shopify-triggered-at', new Date().toISOString())
     .set(
       'x-shopify-hmac-sha256',
       createHmac('sha256', 'integration-secret').update(body).digest('base64'),

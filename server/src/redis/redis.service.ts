@@ -1,4 +1,9 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { Redis } from 'ioredis';
 
 @Injectable()
@@ -32,11 +37,41 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  async deleteTenantData(
+    tenantId: string,
+    storeDomain?: string,
+  ): Promise<void> {
+    // Tenant IDs can be legacy IDs; escape Redis glob metacharacters. The ':'
+    // delimiter prevents prefix collisions with another tenant.
+    const escaped = tenantId.replace(/[\\*?\[\]]/g, '\\$&');
+    const patterns = [`recent:${escaped}:*`];
+    if (storeDomain)
+      patterns.push(`rate:${storeDomain.replace(/[\\*?\[\]]/g, '\\$&')}:*`);
+    for (const pattern of patterns) {
+      let cursor = '0';
+      do {
+        const [next, keys] = await this.client.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          200,
+        );
+        cursor = next;
+        if (keys.length) await this.client.del(...keys);
+      } while (cursor !== '0');
+    }
+  }
+
   /**
    * Records a heartbeat for presence detection (ZSET score = current epoch timestamp in seconds)
    * Key: recent:{tenantId}:{productId}
    */
-  async recordHeartbeat(tenantId: string, productId: string, clientId: string): Promise<void> {
+  async recordHeartbeat(
+    tenantId: string,
+    productId: string,
+    clientId: string,
+  ): Promise<void> {
     const key = `recent:${tenantId}:${productId}`;
     const now = Math.floor(Date.now() / 1000);
 

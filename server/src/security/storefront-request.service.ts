@@ -16,12 +16,13 @@ export class StorefrontRequestService {
     if (req.body?.shop !== undefined && req.body.shop !== shop)
       throw new BadRequestException('Shop does not match signed proxy request');
     const forwarded = req.get('x-forwarded-for')?.split(',')[0].trim();
-    const key = internalId(
+    const bucket = internalId(
       'rate',
       shop,
       forwarded || req.ip || 'unknown',
       String(Math.floor(Date.now() / 60_000)),
     );
+    const key = `rate:${shop}:${bucket}`;
     const count = Number(
       await this.redis
         .getClient()

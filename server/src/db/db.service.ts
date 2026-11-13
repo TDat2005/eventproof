@@ -7,10 +7,24 @@ import {
 import { drizzle, MySql2Database } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import * as schema from './schema.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
-  public db!: MySql2Database<typeof schema>;
+  private database!: MySql2Database<typeof schema>;
+  private readonly scope = new AsyncLocalStorage<
+    MySql2Database<typeof schema>
+  >();
+  get db(): MySql2Database<typeof schema> {
+    return this.scope.getStore() ?? this.database;
+  }
+
+  async transaction<T>(work: () => Promise<T>): Promise<T> {
+    if (this.scope.getStore()) return work();
+    return this.database.transaction((tx) =>
+      this.scope.run(tx as unknown as MySql2Database<typeof schema>, work),
+    );
+  }
   private pool!: mysql.Pool;
   private readonly logger = new Logger(DbService.name);
 
@@ -27,7 +41,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       queueLimit: 0,
     });
 
-    this.db = drizzle(this.pool, { schema, mode: 'default' });
+    this.database = drizzle(this.pool, { schema, mode: 'default' });
 
     await this.initTables();
     this.logger.log('Database tables verified and initialized successfully.');
@@ -65,6 +79,51 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
           INDEX idx_conn_tenant (tenant_id)
         );
       `);
+
+      // F1: startup migration follows the existing information_schema pattern.
+      // Serialize DDL across app replicas (MySQL DDL implicitly commits).
+      const [locks] = await connection.query<mysql.RowDataPacket[]>(
+        "SELECT GET_LOCK('event_proof_f1_migration', 60) AS acquired",
+      );
+      if (Number(locks[0]?.acquired) !== 1)
+        throw new Error('F1 migration lock timeout');
+      try {
+        const [columns] = await connection.query<mysql.RowDataPacket[]>(
+          "SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'store_connections'",
+        );
+        const names = new Set(columns.map((column) => column.name));
+        for (const name of [
+          'installed_at',
+          'uninstalled_at',
+          'redact_requested_at',
+        ]) {
+          if (!names.has(name))
+            await connection.query(
+              `ALTER TABLE store_connections ADD COLUMN ${name} DATETIME(3) NULL`,
+            );
+        }
+        await connection.query(
+          'UPDATE store_connections SET installed_at = created_at WHERE installed_at IS NULL',
+        );
+        await connection.query(
+          'ALTER TABLE store_connections MODIFY installed_at DATETIME(3) NOT NULL',
+        );
+        // Legacy inactive shops have no known uninstall time: start retention now.
+        await connection.query(
+          'UPDATE store_connections SET uninstalled_at = UTC_TIMESTAMP(3), access_token = NULL WHERE active = FALSE AND uninstalled_at IS NULL',
+        );
+        const [indexes] = await connection.query<mysql.RowDataPacket[]>(
+          "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'store_connections' AND INDEX_NAME = 'idx_conn_cleanup'",
+        );
+        if (!indexes.length)
+          await connection.query(
+            'CREATE INDEX idx_conn_cleanup ON store_connections (active, uninstalled_at)',
+          );
+      } finally {
+        await connection.query(
+          "SELECT RELEASE_LOCK('event_proof_f1_migration')",
+        );
+      }
 
       // 2. Catalog
       await connection.query(`
@@ -139,6 +198,26 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
           PRIMARY KEY (tenant_id, product_id, date)
         );
       `);
+
+      // F6: range scans across all products need tenant/date as a left prefix.
+      const [analyticsLocks] = await connection.query<mysql.RowDataPacket[]>(
+        "SELECT GET_LOCK('event_proof_f6_migration', 60) AS acquired",
+      );
+      if (Number(analyticsLocks[0]?.acquired) !== 1)
+        throw new Error('F6 migration lock timeout');
+      try {
+        const [indexes] = await connection.query<mysql.RowDataPacket[]>(
+          "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'views_daily' AND INDEX_NAME = 'idx_views_daily_tenant_date'",
+        );
+        if (!indexes.length)
+          await connection.query(
+            'CREATE INDEX idx_views_daily_tenant_date ON views_daily (tenant_id, date)',
+          );
+      } finally {
+        await connection.query(
+          "SELECT RELEASE_LOCK('event_proof_f6_migration')",
+        );
+      }
 
       // 5. Sales (Orders & Contributions)
       await connection.query(`

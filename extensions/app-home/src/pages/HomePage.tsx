@@ -124,6 +124,7 @@ export default function HomePage() {
 
   return (
     <s-page heading="Social Proof & Analytics">
+      <s-link href="/analytics">Analytics · Thống kê lượt xem</s-link>
       <s-stack direction="block" gap="base">
         {error && <s-banner tone="critical">{error}</s-banner>}
         {saved && (

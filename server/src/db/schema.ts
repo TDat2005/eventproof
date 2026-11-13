@@ -31,6 +31,11 @@ export const storeConnections = mysqlTable(
       .notNull()
       .default('UTC'),
     active: boolean('active').notNull().default(true),
+    installedAt: datetime('installed_at', { fsp: 3 })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    uninstalledAt: datetime('uninstalled_at', { fsp: 3 }),
+    redactRequestedAt: datetime('redact_requested_at', { fsp: 3 }),
     createdAt: datetime('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
@@ -41,6 +46,7 @@ export const storeConnections = mysqlTable(
       table.externalStoreId,
     ),
     index('idx_conn_tenant').on(table.tenantId),
+    index('idx_conn_cleanup').on(table.active, table.uninstalledAt),
   ],
 );
 
@@ -138,6 +144,7 @@ export const viewsDaily = mysqlTable(
   },
   (table) => [
     primaryKey({ columns: [table.tenantId, table.productId, table.date] }),
+    index('idx_views_daily_tenant_date').on(table.tenantId, table.date),
   ],
 );
 

@@ -2,6 +2,10 @@
 
 NestJS backend, MySQL, Redis, Theme App Extension và App Home. Xem [luồng nghiệp vụ, cách chạy và kiểm thử](docs/core-flow.md) cho phần core hiện tại.
 
+Xem [F1 uninstall cleanup: migration, cấu hình và kiểm thử dev store](docs/f1-uninstall-cleanup.md).
+
+Xem [F6 Analytics Dashboard: API, index, kiểm thử và hướng dẫn dev store](docs/f6-analytics.md).
+
 Phần bên dưới là tài liệu template gốc.
 
 This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [Preact](https://preactjs.com/) and [Vite](https://vite.dev/). It uses Shopify's [Direct API access](https://shopify.dev/docs/api/app-home#direct-api-access) and [App Bridge](https://shopify.dev/docs/api/app-bridge) to make authenticated calls to the Shopify Admin API directly from the browser — no server required.

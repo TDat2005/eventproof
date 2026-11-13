@@ -9,10 +9,12 @@ import { ViewTrackerService } from './application/view-tracker.service.js';
 import { EngagementController } from './presentation/engagement.controller.js';
 import { ConnectionsModule } from '../connections/connections.module.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
+import { AnalyticsService } from './application/analytics.service.js';
+import { AnalyticsController } from './presentation/analytics.controller.js';
 
 @Module({
   imports: [ConnectionsModule, CatalogModule],
-  controllers: [EngagementController],
+  controllers: [EngagementController, AnalyticsController],
   providers: [
     {
       provide: VIEW_REPOSITORY,
@@ -23,6 +25,7 @@ import { CatalogModule } from '../catalog/catalog.module.js';
       useClass: RedisPresenceTracker,
     },
     ViewTrackerService,
+    AnalyticsService,
   ],
   exports: [ViewTrackerService],
 })

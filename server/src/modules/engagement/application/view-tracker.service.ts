@@ -36,27 +36,29 @@ export class ViewTrackerService {
   }) {
     const occurredAt = eventDate(dto.occurredAt);
     const eventId = textValue(dto.eventId, 'eventId');
-    const connection = await this.connectionsService.resolveConnection(
+    return this.connectionsService.withActiveConnection(
       dto.shop,
-    );
-    const product = await this.catalogService.resolveProduct(
-      connection.tenantId,
-      connection.id,
-      productId(dto.externalProductId),
-      'PRODUCT',
-    );
+      async (connection) => {
+        const product = await this.catalogService.resolveProduct(
+          connection.tenantId,
+          connection.id,
+          productId(dto.externalProductId),
+          'PRODUCT',
+        );
 
-    const eventKey = internalId('view', connection.id, product.id, eventId);
-    const dateStr = localDate(occurredAt, connection.timezoneIana);
+        const eventKey = internalId('view', connection.id, product.id, eventId);
+        const dateStr = localDate(occurredAt, connection.timezoneIana);
 
-    return this.viewRepository.recordView(
-      {
-        tenantId: connection.tenantId,
-        productId: product.id,
-        eventKey,
-        occurredAt,
+        return this.viewRepository.recordView(
+          {
+            tenantId: connection.tenantId,
+            productId: product.id,
+            eventKey,
+            occurredAt,
+          },
+          dateStr,
+        );
       },
-      dateStr,
     );
   }
 
@@ -65,22 +67,24 @@ export class ViewTrackerService {
     externalProductId: string;
     clientId: string;
   }) {
-    const connection = await this.connectionsService.resolveConnection(
+    return this.connectionsService.withActiveConnection(
       dto.shop,
-    );
-    const product = await this.catalogService.resolveProduct(
-      connection.tenantId,
-      connection.id,
-      productId(dto.externalProductId),
-      'PRODUCT',
-    );
+      async (connection) => {
+        const product = await this.catalogService.resolveProduct(
+          connection.tenantId,
+          connection.id,
+          productId(dto.externalProductId),
+          'PRODUCT',
+        );
 
-    await this.presenceTracker.recordHeartbeat(
-      connection.tenantId,
-      product.id,
-      textValue(dto.clientId, 'clientId'),
+        await this.presenceTracker.recordHeartbeat(
+          connection.tenantId,
+          product.id,
+          textValue(dto.clientId, 'clientId'),
+        );
+        return { success: true };
+      },
     );
-    return { success: true };
   }
 
   async getEngagementMetrics(

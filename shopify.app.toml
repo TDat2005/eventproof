@@ -23,6 +23,10 @@ topics = ["app/uninstalled"]
 uri = "/api/webhooks/app-uninstalled"
 
 [[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "/api/webhooks/shop-redact"
+
+[[webhooks.subscriptions]]
 topics = ["shop/update"]
 uri = "/api/webhooks/shop-update"
 

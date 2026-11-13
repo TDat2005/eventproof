@@ -1,6 +1,16 @@
 import { ViewEventEntity } from './view-event.entity.js';
 
 export interface IViewRepository {
+  getViewsByDate(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<Array<{ date: string; views: number }>>;
+  getTopProducts(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<Array<{ productId: string; title: string | null; views: number }>>;
   recordView(
     view: ViewEventEntity,
     dateStr: string,

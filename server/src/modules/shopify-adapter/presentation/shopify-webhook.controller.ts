@@ -12,6 +12,7 @@ import { OrderSyncService } from '../../sales/application/order-sync.service.js'
 import { ConnectionsService } from '../../connections/application/connections.service.js';
 import { ShopifyAuthService } from '../../../security/shopify-auth.service.js';
 import { productId, shopDomain, textValue } from '../../../common/values.js';
+import { UninstallCleanupService } from '../../connections/application/uninstall-cleanup.service.js';
 
 @Controller('api/webhooks')
 export class ShopifyWebhookController {
@@ -19,11 +20,26 @@ export class ShopifyWebhookController {
     private readonly orders: OrderSyncService,
     private readonly connections: ConnectionsService,
     private readonly auth: ShopifyAuthService,
+    private readonly cleanup: UninstallCleanupService,
   ) {}
 
   private authenticate(req: RawBodyRequest<Request>, shop: string): string {
     this.auth.verifyWebhook(req.rawBody, req.get('x-shopify-hmac-sha256'));
     return shopDomain(shop);
+  }
+
+  private triggeredAt(req: Request): Date {
+    const value = req.get('x-shopify-triggered-at');
+    const date = new Date(value ?? '');
+    if (
+      !value ||
+      !Number.isFinite(date.getTime()) ||
+      date.getTime() > Date.now() + 300_000
+    )
+      throw new BadRequestException(
+        'Missing or invalid x-shopify-triggered-at',
+      );
+    return date;
   }
 
   @Post('orders')
@@ -85,7 +101,23 @@ export class ShopifyWebhookController {
     const shop = this.authenticate(req, domain);
     if (req.get('x-shopify-topic') !== 'app/uninstalled')
       throw new BadRequestException('Unsupported topic');
-    await this.connections.deactivateConnection(shop);
+    await this.connections.deactivateConnection(shop, this.triggeredAt(req));
+    return { received: true };
+  }
+
+  @Post('shop-redact')
+  @HttpCode(200)
+  async redactShop(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('x-shopify-shop-domain') domain: string,
+  ) {
+    const shop = this.authenticate(req, domain);
+    if (
+      req.get('x-shopify-topic') !== 'shop/redact' ||
+      shopDomain(req.body?.shop_domain) !== shop
+    )
+      throw new BadRequestException('Invalid shop redaction');
+    await this.cleanup.requestRedaction(shop, this.triggeredAt(req));
     return { received: true };
   }
 
@@ -99,7 +131,7 @@ export class ShopifyWebhookController {
     if (req.get('x-shopify-topic') !== 'shop/update')
       throw new BadRequestException('Unsupported topic');
     if ((await this.connections.getConnection(shop))?.active) {
-      await this.connections.activateConnection(shop, req.body?.iana_timezone);
+      await this.connections.updateTimezone(shop, req.body?.iana_timezone);
     }
     return { received: true };
   }

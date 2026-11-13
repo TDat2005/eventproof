@@ -2,14 +2,68 @@ import { Injectable, Logger } from '@nestjs/common';
 import { IViewRepository } from '../domain/engagement.ports.js';
 import { ViewEventEntity } from '../domain/view-event.entity.js';
 import { DbService } from '../../../db/db.service.js';
-import { viewEvents, viewsDaily, viewsHourly } from '../../../db/schema.js';
-import { sql, eq, and } from 'drizzle-orm';
+import {
+  products,
+  viewEvents,
+  viewsDaily,
+  viewsHourly,
+} from '../../../db/schema.js';
+import { sql, eq, and, gte, lte, asc, desc, sum } from 'drizzle-orm';
 
 @Injectable()
 export class DrizzleViewRepository implements IViewRepository {
   private readonly logger = new Logger(DrizzleViewRepository.name);
 
   constructor(private readonly dbService: DbService) {}
+
+  async getViewsByDate(tenantId: string, startDate: string, endDate: string) {
+    const rows = await this.dbService.db
+      .select({
+        date: viewsDaily.date,
+        views: sum(viewsDaily.totalViews),
+      })
+      .from(viewsDaily)
+      .where(
+        and(
+          eq(viewsDaily.tenantId, tenantId),
+          gte(viewsDaily.date, startDate),
+          lte(viewsDaily.date, endDate),
+        ),
+      )
+      .groupBy(viewsDaily.date)
+      .orderBy(asc(viewsDaily.date));
+    return rows.map((row) => ({ date: row.date, views: Number(row.views) }));
+  }
+
+  async getTopProducts(tenantId: string, startDate: string, endDate: string) {
+    const total = sum(viewsDaily.totalViews);
+    const rows = await this.dbService.db
+      .select({
+        productId: viewsDaily.productId,
+        title: products.title,
+        views: total,
+      })
+      .from(viewsDaily)
+      .leftJoin(
+        products,
+        and(
+          eq(products.id, viewsDaily.productId),
+          eq(products.tenantId, tenantId),
+        ),
+      )
+      .where(
+        and(
+          eq(viewsDaily.tenantId, tenantId),
+          gte(viewsDaily.date, startDate),
+          lte(viewsDaily.date, endDate),
+        ),
+      )
+      .groupBy(viewsDaily.productId, products.title)
+      .having(sql`${total} > 0`)
+      .orderBy(desc(total), asc(viewsDaily.productId))
+      .limit(10);
+    return rows.map((row) => ({ ...row, views: Number(row.views) }));
+  }
 
   async recordView(
     view: ViewEventEntity,

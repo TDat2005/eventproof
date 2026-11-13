@@ -32,9 +32,30 @@ export class ConnectionsService {
     );
   }
 
-  async deactivateConnection(storeDomain: string): Promise<void> {
+  async deactivateConnection(
+    storeDomain: string,
+    triggeredAt: Date,
+  ): Promise<void> {
     await this.connectionsRepository.deactivateConnection(
       shopDomain(storeDomain),
+      triggeredAt,
+    );
+  }
+
+  withActiveConnection<T>(
+    domain: string,
+    work: (connection: StoreConnectionEntity) => Promise<T>,
+  ): Promise<T> {
+    return this.connectionsRepository.withActiveConnection(
+      shopDomain(domain),
+      work,
+    );
+  }
+
+  updateTimezone(domain: string, timezone: string): Promise<void> {
+    return this.connectionsRepository.updateTimezone(
+      shopDomain(domain),
+      timezoneValue(timezone),
     );
   }
 

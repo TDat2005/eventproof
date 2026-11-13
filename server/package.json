@@ -8,6 +8,10 @@
   "type": "module",
   "scripts": {
     "build": "nest build",
+    "typecheck": "tsc --noEmit",
+    "test:f1": "pnpm run build && node --test test/f1.integration.mjs",
+    "test:f6": "pnpm run build && node --test test/f6.integration.mjs",
+    "test:frontend": "vitest run --config vitest.frontend.config.ts",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
