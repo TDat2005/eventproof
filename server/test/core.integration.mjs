@@ -12,6 +12,8 @@ import { config } from 'dotenv';
 config({ quiet: true });
 process.env.SHOPIFY_API_KEY = 'integration-client';
 process.env.SHOPIFY_API_SECRET = 'integration-secret';
+process.env.NODE_ENV = 'test';
+process.env.SALES_TEST_ORDER_SHOPS = '';
 const { AppModule } = await import('../dist/app.module.js');
 const { DbService } = await import('../dist/db/db.service.js');
 const { RedisService } = await import('../dist/redis/redis.service.js');
@@ -63,7 +65,7 @@ function proxy(path, domain = shop) {
     .join('');
   return `/api/proxy/${path}?${new URLSearchParams({ ...params, signature: createHmac('sha256', 'integration-secret').update(message).digest('hex') })}`;
 }
-function webhook(payload, topic = 'orders/updated') {
+function webhook(payload, topic = 'orders/create') {
   const body = JSON.stringify(payload);
   return request(http)
     .post('/api/webhooks/orders')
@@ -246,40 +248,75 @@ void test('settings persist, enforce thresholds, and reject tenant injection or 
   }
 });
 
-void test('orders replace removed products, reject stale updates, exclude cancellations and test orders', async () => {
+void test('created orders count once using original quantities and ignore subsequent updates or cancellations', async () => {
   await activate();
   const created = new Date(Date.now() - 60_000).toISOString();
-  const updated = new Date(Date.now() - 30_000).toISOString();
   const payload = {
     id: '1234567890123',
     created_at: created,
-    updated_at: created,
     test: false,
-    cancelled_at: null,
-    line_items: [{ id: '12345678901234', product_id: '123', quantity: 2 }],
+    line_items: [
+      {
+        id: '12345678901234',
+        product_id: '123',
+        quantity: 2,
+        current_quantity: 1,
+      },
+    ],
   };
-  await webhook(payload, 'orders/create').expect(200);
-  await webhook(payload, 'orders/create').expect(200);
-  let result = await request(http).get(proxy('metrics/123')).expect(200);
-  assert.equal(result.body.ordersLast24h, 2);
-  await webhook({ ...payload, updated_at: updated, line_items: [] }).expect(
-    200,
-  );
-  await webhook(payload, 'orders/create').expect(200);
-  result = await request(http).get(proxy('metrics/123')).expect(200);
-  assert.equal(result.body.ordersLast24h, 0);
-  await webhook(
-    { ...payload, updated_at: new Date().toISOString(), cancelled_at: updated },
-    'orders/cancelled',
-  ).expect(200);
-  await webhook(payload, 'orders/create').expect(200);
+  await webhook(payload).expect(200);
+  await webhook(payload).expect(200);
+  // A retried create must not change the initial quantities, even if it differs.
+  await webhook({
+    ...payload,
+    line_items: [{ ...payload.line_items[0], quantity: 9 }],
+  }).expect(200);
+  for (const topic of ['orders/updated', 'orders/cancelled']) {
+    const ignored = await webhook(
+      { ...payload, line_items: [], cancelled_at: created },
+      topic,
+    ).expect(200);
+    assert.equal(ignored.body.ignored, true);
+  }
   await webhook({ ...payload, id: 'test-order', test: true }).expect(200);
-  result = await request(http).get(proxy('metrics/123')).expect(200);
-  assert.equal(result.body.ordersLast24h, 0);
+  const result = await request(http).get(proxy('metrics/123')).expect(200);
+  assert.equal(result.body.ordersLast24h, 2);
+  assert.equal(await count('order_snapshots'), 2);
   const [rows] = await conn.query(
     'SELECT MAX(CHAR_LENGTH(id)) AS n FROM order_lines',
   );
   assert.ok(rows[0].n <= 64);
+});
+
+void test('test-order counting is allowed only for explicit development shops and never in production', async () => {
+  await activate();
+  const payload = {
+    id: 'dev-order',
+    created_at: new Date().toISOString(),
+    test: true,
+    line_items: [{ id: 'dev-line', product_id: '123', quantity: 2 }],
+  };
+  try {
+    process.env.NODE_ENV = 'development';
+    process.env.SALES_TEST_ORDER_SHOPS = shop;
+    await webhook(payload).expect(200);
+    let result = await request(http).get(proxy('metrics/123')).expect(200);
+    assert.equal(result.body.ordersLast24h, 2);
+    const [rows] = await conn.query('SELECT test_order FROM order_snapshots');
+    assert.equal(rows[0].test_order, 1);
+    process.env.NODE_ENV = 'production';
+    await webhook({ ...payload, id: 'production-test' }).expect(200);
+    result = await request(http).get(proxy('metrics/123')).expect(200);
+    assert.equal(result.body.ordersLast24h, 0);
+    process.env.NODE_ENV = 'development';
+    process.env.SALES_TEST_ORDER_SHOPS = 'another-shop.myshopify.com';
+    await webhook({ ...payload, id: 'unlisted-test' }).expect(200);
+    result = await request(http).get(proxy('metrics/123')).expect(200);
+    assert.equal(result.body.ordersLast24h, 0);
+  } finally {
+    process.env.NODE_ENV = 'test';
+    process.env.SALES_TEST_ORDER_SHOPS = '';
+  }
 });
 
 void test('tenant isolation and uninstall prevent subsequent storefront tracking', async () => {
@@ -342,34 +379,32 @@ void test('sales sums quantities across variants and excludes orders outside 24 
   assert.equal(await count('order_contributions'), 2);
 });
 
-void test('failed order replacement rolls back snapshot, lines and contributions together', async () => {
+void test('failed order creation rolls back all rows and can retry successfully', async () => {
   await activate();
   const time = new Date(Date.now() - 60_000).toISOString();
   const payload = {
     id: 'rollback-order',
     created_at: time,
-    updated_at: time,
-    line_items: [{ id: 'line-a', product_id: '123', quantity: 2 }],
+    line_items: [{ id: 'line-a', product_id: '123', quantity: 3 }],
   };
-  await webhook(payload).expect(200);
   await conn.query(
     'ALTER TABLE order_contributions ADD CONSTRAINT review_quantity CHECK (quantity < 3)',
   );
   try {
-    await webhook({
-      ...payload,
-      updated_at: new Date().toISOString(),
-      line_items: [{ ...payload.line_items[0], quantity: 3 }],
-    }).expect(500);
-    const result = await request(http).get(proxy('metrics/123')).expect(200);
-    assert.equal(result.body.ordersLast24h, 2);
-    const [rows] = await conn.query('SELECT current_quantity FROM order_lines');
-    assert.equal(rows[0].current_quantity, 2);
+    await webhook(payload).expect(500);
+    assert.equal(await count('order_snapshots'), 0);
+    assert.equal(await count('order_lines'), 0);
+    assert.equal(await count('order_contributions'), 0);
   } finally {
     await conn.query(
       'ALTER TABLE order_contributions DROP CHECK review_quantity',
     );
   }
+  await webhook(payload).expect(200);
+  await webhook(payload).expect(200);
+  const result = await request(http).get(proxy('metrics/123')).expect(200);
+  assert.equal(result.body.ordersLast24h, 3);
+  assert.equal(await count('order_snapshots'), 1);
 });
 
 void test('view counter failure rolls back the event, allowing a successful retry', async () => {

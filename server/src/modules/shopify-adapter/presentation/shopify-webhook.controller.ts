@@ -34,10 +34,8 @@ export class ShopifyWebhookController {
     @Headers('x-shopify-topic') topic: string,
   ) {
     const shop = this.authenticate(req, domain);
-    if (
-      !['orders/create', 'orders/updated', 'orders/cancelled'].includes(topic)
-    )
-      throw new BadRequestException('Unsupported order topic');
+    // Acknowledge old subscriptions still in flight without changing counts.
+    if (topic !== 'orders/create') return { received: true, ignored: true };
     const connection = await this.connections.getConnection(shop);
     // Events arriving after uninstall or before first Admin activation are not
     // permission to create a tenant. Shopify can still retry older deliveries.
@@ -45,10 +43,8 @@ export class ShopifyWebhookController {
     const payload = req.body;
     const externalOrderId = textValue(String(payload?.id || ''), 'orderId');
     const orderCreatedAt = new Date(payload?.created_at);
-    const sourceUpdatedAt = new Date(payload?.updated_at);
     if (
       !Number.isFinite(orderCreatedAt.getTime()) ||
-      !Number.isFinite(sourceUpdatedAt.getTime()) ||
       !Array.isArray(payload?.line_items)
     ) {
       throw new BadRequestException('Invalid order snapshot');
@@ -56,7 +52,7 @@ export class ShopifyWebhookController {
     const lineItems = payload.line_items
       .filter((item: any) => item.product_id != null)
       .map((item: any) => {
-        const quantity = Number(item.current_quantity ?? item.quantity);
+        const quantity = Number(item.quantity);
         if (!Number.isSafeInteger(quantity) || quantity < 0)
           throw new BadRequestException('Invalid order quantity');
         return {
@@ -70,13 +66,11 @@ export class ShopifyWebhookController {
         .size !== lineItems.length
     )
       throw new BadRequestException('Duplicate line item');
-    await this.orders.syncOrder({
+    await this.orders.recordCreatedOrder({
       shop,
       externalOrderId,
-      cancelled: Boolean(payload.cancelled_at) || topic === 'orders/cancelled',
       testOrder: payload.test === true,
       orderCreatedAt,
-      sourceUpdatedAt,
       lineItems,
     });
     return { received: true };

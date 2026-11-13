@@ -63,6 +63,10 @@
 .ep-proof .sp-side-tab-container { position: fixed; top: 50%; transform: translateY(-50%); z-index: 1000; }
 .ep-proof .sp-side-tab-container[data-side="left"] { left: 0; }
 .ep-proof .sp-side-tab-container[data-side="right"] { right: 0; }
+/* Keep the small gap between the tab and panel within the hover target. */
+.ep-proof .sp-side-tab-container.sp-open::before { content: ""; position: absolute; top: -24px; bottom: -24px; width: 12px; }
+.ep-proof .sp-side-tab-container[data-side="right"]::before { right: 100%; }
+.ep-proof .sp-side-tab-container[data-side="left"]::before { left: 100%; }
 .ep-proof .sp-side-trigger {
   appearance: none;
   display: flex;

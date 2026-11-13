@@ -12,10 +12,8 @@ import { internalId } from '../../../common/values.js';
 export interface IncomingOrderDto {
   shop: string;
   externalOrderId: string;
-  cancelled: boolean;
   testOrder: boolean;
   orderCreatedAt: Date;
-  sourceUpdatedAt: Date;
   lineItems: Array<{
     lineItemId: string;
     externalProductId: string;
@@ -35,7 +33,18 @@ export class OrderSyncService {
     private readonly catalogService: CatalogService,
   ) {}
 
-  async syncOrder(dto: IncomingOrderDto): Promise<void> {
+  private includesTestOrders(shop: string): boolean {
+    const testShops = (process.env.SALES_TEST_ORDER_SHOPS || '')
+      .split(',')
+      .map((domain) => domain.trim().toLowerCase())
+      .filter(Boolean);
+    return (
+      process.env.NODE_ENV === 'development' &&
+      testShops.includes(shop.toLowerCase())
+    );
+  }
+
+  async recordCreatedOrder(dto: IncomingOrderDto): Promise<void> {
     const connection = await this.connectionsService.resolveConnection(
       dto.shop,
     );
@@ -47,10 +56,10 @@ export class OrderSyncService {
       tenantId,
       connectionId: connection.id,
       externalOrderId: dto.externalOrderId,
-      cancelled: dto.cancelled,
+      cancelled: false,
       testOrder: dto.testOrder,
       orderCreatedAt: dto.orderCreatedAt,
-      sourceUpdatedAt: dto.sourceUpdatedAt,
+      sourceUpdatedAt: dto.orderCreatedAt,
       syncGeneration: 1,
     };
 
@@ -74,18 +83,28 @@ export class OrderSyncService {
       });
     }
 
-    await this.orderRepository.saveOrderSnapshot(snapshot, lines);
+    const includeTestOrder = this.includesTestOrders(dto.shop);
+    await this.orderRepository.saveCreatedOrder(
+      snapshot,
+      lines,
+      includeTestOrder,
+    );
     this.logger.log(
-      `Synced order ${dto.externalOrderId} for ${dto.shop}: ${lines.length} items`,
+      `Processed created order ${dto.externalOrderId} for ${dto.shop}: ${lines.length} items`,
     );
   }
 
-  async getSalesMetrics(tenantId: string, productId: string): Promise<number> {
+  async getSalesMetrics(
+    tenantId: string,
+    productId: string,
+    shop = '',
+  ): Promise<number> {
     const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return this.orderRepository.getSoldQuantityLast24h(
       tenantId,
       productId,
       windowStart,
+      this.includesTestOrders(shop),
     );
   }
 }

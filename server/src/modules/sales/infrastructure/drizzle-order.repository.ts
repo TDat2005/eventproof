@@ -17,9 +17,10 @@ import { internalId } from '../../../common/values.js';
 export class DrizzleOrderRepository implements IOrderRepository {
   constructor(private readonly dbService: DbService) {}
 
-  async saveOrderSnapshot(
+  async saveCreatedOrder(
     snapshot: OrderSnapshotEntity,
     lines: OrderLineEntity[],
+    includeTestOrder = false,
   ): Promise<void> {
     await this.dbService.db.transaction(async (tx) => {
       // Lock by the unique external identity, preserving legacy internal IDs.
@@ -39,37 +40,19 @@ export class DrizzleOrderRepository implements IOrderRepository {
         )
         .for('update');
       if (!current) throw new Error('Order snapshot not found after insert');
-      if (
-        current.sourceUpdatedAt.getTime() > snapshot.sourceUpdatedAt.getTime()
-      )
-        return;
-      if (current.cancelled && !snapshot.cancelled) return;
+      // First successful create wins. Retries (even with a changed payload)
+      // cannot replace quantities or add the same order a second time.
+      if (current.syncGeneration > 0) return;
       const orderId = current.id;
       await tx
         .update(orderSnapshots)
         .set({
-          cancelled: snapshot.cancelled,
+          cancelled: false,
           testOrder: snapshot.testOrder,
           sourceUpdatedAt: snapshot.sourceUpdatedAt,
-          syncGeneration: sql`sync_generation + 1`,
+          syncGeneration: 1,
         })
         .where(eq(orderSnapshots.id, orderId));
-      await tx
-        .delete(orderLines)
-        .where(
-          and(
-            eq(orderLines.tenantId, snapshot.tenantId),
-            eq(orderLines.orderId, orderId),
-          ),
-        );
-      await tx
-        .delete(orderContributions)
-        .where(
-          and(
-            eq(orderContributions.tenantId, snapshot.tenantId),
-            eq(orderContributions.orderId, orderId),
-          ),
-        );
       if (lines.length)
         await tx.insert(orderLines).values(
           lines.map((line) => ({
@@ -79,7 +62,7 @@ export class DrizzleOrderRepository implements IOrderRepository {
           })),
         );
       const totals = new Map<string, number>();
-      if (!snapshot.cancelled && !snapshot.testOrder) {
+      if (!snapshot.testOrder || includeTestOrder) {
         for (const line of lines)
           totals.set(
             line.productId,
@@ -103,18 +86,27 @@ export class DrizzleOrderRepository implements IOrderRepository {
     tenantId: string,
     productId: string,
     windowStart: Date,
+    includeTestOrders = false,
   ): Promise<number> {
     const [result] = await this.dbService.db
       .select({
         totalSold: sql<number>`COALESCE(SUM(${orderContributions.quantity}), 0)`,
       })
       .from(orderContributions)
+      .innerJoin(
+        orderSnapshots,
+        and(
+          eq(orderSnapshots.id, orderContributions.orderId),
+          eq(orderSnapshots.tenantId, orderContributions.tenantId),
+        ),
+      )
       .where(
         and(
           eq(orderContributions.tenantId, tenantId),
           eq(orderContributions.productId, productId),
           gte(orderContributions.orderCreatedAt, windowStart),
           lte(orderContributions.orderCreatedAt, new Date()),
+          includeTestOrders ? undefined : eq(orderSnapshots.testOrder, false),
         ),
       );
     return Number(result?.totalSold || 0);

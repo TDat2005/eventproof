@@ -29,8 +29,8 @@ const fields: Array<[Metric, string, string]> = [
   ],
   [
     "order",
-    "Số sản phẩm bán trong 24 giờ",
-    "Tổng số lượng sản phẩm trong các đơn hợp lệ, không tính đơn test hoặc đã hủy.",
+    "Sản phẩm được đặt trong 24 giờ",
+    "Tính số lượng khi đơn được tạo, không tính đơn test. Không điều chỉnh theo các lần sửa hoặc hủy đơn sau đó.",
   ],
 ];
 

@@ -35,19 +35,38 @@ Presence là số browser có heartbeat trong 300 giây gần nhất. Redis tự
 
 Các request storefront có giới hạn tần suất theo shop/IP. Khi Customer Privacy API có mặt và không cho phép analytics, widget không gửi tracking.
 
-## 4. Đơn hàng thay đổi
+## 4. Đơn hàng được tạo
 
-App khai báo subscription `orders/create`, `orders/updated`, `orders/cancelled` trong `shopify.app.toml`. Backend xác thực HMAC trên raw body trước khi xử lý. Đơn của connection chưa active hoặc đã uninstall được bỏ qua, không tự tạo tenant.
+App chỉ khai báo subscription `orders/create` cho thống kê đơn hàng trong `shopify.app.toml`. Đây là sự kiện đơn được tạo, không phải trạng thái thanh toán hay hoàn tất giao hàng. Backend xác thực HMAC trên raw body trước khi xử lý. Đơn của connection chưa active hoặc đã uninstall được bỏ qua, không tự tạo tenant.
 
-Mỗi snapshot được lưu trong một transaction, khóa theo connection + external order ID. Bản cập nhật cũ hơn `sourceUpdatedAt` đã lưu bị bỏ qua; đơn đã hủy không được khôi phục bởi webhook create đến muộn. Độ chính xác timestamp được lưu tới millisecond.
+Mỗi đơn được ghi đúng một lần trong transaction, khóa theo connection + external order ID. Lần tạo đã lưu thành công sẽ được giữ nguyên; gửi lại webhook cùng đơn không cộng thêm và không thay thế số lượng, kể cả payload retry khác đi. Nếu lưu lỗi giữa chừng, cả snapshot, line và contribution đều rollback để retry lại an toàn.
 
-Transaction thay thế các line và contribution của đơn, do đó sản phẩm bị xóa khỏi đơn không còn contribution cũ. Các line/variant cùng product được gom tổng quantity. Đơn test hoặc đã hủy không đóng góp sales. Gửi lại cùng snapshot không cộng thêm quantity.
+Lấy `line_items.quantity` tại thời điểm tạo đơn, không lấy `current_quantity`. Các line/variant cùng product được gom tổng quantity. Đơn test không đóng góp số lượng. Các lần sửa, hủy hoặc hoàn tiền sau đó không thay đổi số đã ghi; nếu webhook update/cancel cũ còn được gửi tới endpoint thì được xác thực và acknowledge nhưng không xử lý nghiệp vụ.
 
-`ordersLast24h` hiện là **số lượng sản phẩm bán**, không phải số đơn: một đơn mua 3 sản phẩm A đóng góp 3 cho A. Chỉ cộng contribution có thời điểm tạo đơn nằm trong 24 giờ gần nhất và không ở tương lai.
+`ordersLast24h` là **số lượng sản phẩm được đặt khi đơn được tạo**, không phải số đơn hay số sản phẩm đã thanh toán: một đơn đặt 3 sản phẩm A đóng góp 3 cho A. Chỉ cộng contribution có thời điểm tạo đơn nằm trong 24 giờ gần nhất và không ở tương lai. Sau 24 giờ, contribution tự nằm ngoài truy vấn thống kê; không cần nhận webhook khác để trừ.
+
+Các snapshot cũ từng được điều chỉnh theo update/cancel được giữ nguyên; không tự suy đoán hoặc ghi đè lại số lượng ban đầu. Quy tắc create-only áp dụng cho đơn được tiếp nhận từ bản sửa này.
 
 `shop/update` cập nhật múi giờ cho connection active. `app/uninstalled` vô hiệu connection; API storefront từ chối traffic tiếp theo.
 
 ## Chạy và kiểm thử
+
+### Test số lượng được đặt trong 24 giờ trên dev store
+
+Đơn tạo qua cổng thanh toán thử của Shopify có `test: true`; mặc định không được cộng vào widget. Để thử luồng thực tế trên một shop dev, cấu hình trong `server/.env`:
+
+```dotenv
+NODE_ENV=development
+SALES_TEST_ORDER_SHOPS=tadnot.myshopify.com
+```
+
+Chế độ này chỉ cho phép shop nằm trong danh sách và bắt buộc `NODE_ENV=development`; production luôn loại đơn test. Cờ `test_order` vẫn được lưu đúng giá trị nhận từ Shopify. Chỉ định shop dev khác nếu cần; nhiều domain phân tách bằng dấu phẩy.
+
+Khởi động lại `pnpm dev`, mở App Home để kích hoạt connection và bật “Sản phẩm được đặt trong 24 giờ” với ngưỡng 1. Tạo **đơn test mới** qua checkout cho đúng sản phẩm, quantity 2. Shopify cần gửi `orders/create` thành công tới tunnel còn hoạt động. Khi quay lại trang sản phẩm, lần polling kế tiếp (10 giây, chưa tính độ trễ webhook) sẽ tăng quantity thêm 2. Hủy/sửa đơn không giảm số đã ghi vì hiện chỉ xử lý sự kiện tạo đơn.
+
+Đơn test đã được xử lý trước khi bật chế độ này không được tính lại qua retry; cần tạo đơn mới. Tắt cấu hình không xóa contribution của các đơn test đã nhận trước đó, nhưng truy vấn metrics sẽ loại chúng khỏi kết quả. Production luôn loại đơn test cả khi dữ liệu thử đã được ghi từ trước; dữ liệu thử chỉ nên nằm trong shop dev riêng.
+
+Tab bên lề trên desktop mở khi rê chuột vào tab hoặc panel và đóng khi chuột rời khỏi cả hai vùng (trễ 180ms để tránh nhấp nháy). Trên thiết bị cảm ứng vẫn bấm để mở/đóng; phím Escape và nút đóng vẫn hoạt động.
 
 ```sh
 pnpm install
@@ -70,6 +89,16 @@ shopify app build
 Integration test cần MySQL/Redis đang chạy. Test dùng bản sao bảng dạng TEMPORARY trên một connection riêng; không sửa dữ liệu merchant. Redis fixture có namespace riêng và được dọn sau test, rate-limit fixture tự hết hạn.
 
 ## Dữ liệu có sẵn và giới hạn
+
+### Lỗi Shopify không cho đăng ký webhook đơn hàng
+
+Nếu app preview báo `This app is not approved to subscribe to webhook topics containing protected customer data`, subscription `orders/create` vẫn cần quyền Protected customer data vì dữ liệu liên quan tới đơn hàng được Shopify xếp vào nhóm này. Scope `read_orders` không tự cấp quyền đó. Chỉ nhận sự kiện tạo đơn không loại bỏ yêu cầu cấp quyền.
+
+Trong dashboard của Event-Proof, mở **API access requests → Protected customer data access → Request access**, chọn Protected customer data và lưu mục đích: tổng hợp số lượng sản phẩm trong đơn hợp lệ tạo trong 24 giờ để hiển thị social proof. Ứng dụng không cần tên, địa chỉ, email hay số điện thoại khách hàng, nên không chọn các trường nhận dạng đó. Nếu chưa có mục yêu cầu quyền, cần chọn distribution method phù hợp với kế hoạch phát hành trước; không chọn tùy ý vì lựa chọn này ảnh hưởng cách phân phối app.
+
+Theo [hướng dẫn Shopify](https://shopify.dev/docs/apps/launch/protected-customer-data), app chỉ cài trên development store có thể dùng quyền sau khi khai báo và lưu, không cần gửi duyệt public app. Khi quyền đã được cấp, chạy lại `pnpm dev` và chấp nhận cập nhật scope nếu Shopify yêu cầu. App cài trên shop thật có thể cần quy trình duyệt tương ứng.
+
+Payload order webhook đã được giới hạn các trường cần cho đồng bộ. Cấu hình này giảm dữ liệu nhận về nhưng không bỏ yêu cầu cấp quyền. Không xóa các subscription order để che lỗi vì việc đó làm ngừng đồng bộ sales.
 
 Thay đổi này không reset counter lịch sử và không xóa dữ liệu merchant. Daily views từng bị tăng sai bởi polling vẫn cần được đối soát riêng; raw event cũ không đủ để khôi phục chính xác mọi page view thực tế. Các counter mới áp dụng quy tắc đúng từ lúc chạy bản sửa.
 

@@ -17,7 +17,7 @@
           </div>
       {% else %}
         {% assign id_prefix = 'sp-side' %}
-        <div class="sp-side-tab-container" data-side="{{ block.settings.floating_side }}">
+        <div id="sp-side-shell-{{ block.id }}" class="sp-side-tab-container" data-side="{{ block.settings.floating_side }}">
           <button type="button" id="sp-side-trigger-{{ block.id }}" class="sp-side-trigger" aria-label="Xem hoạt động sản phẩm" aria-expanded="false" aria-controls="sp-side-panel-{{ block.id }}" style="display: none;">
             <span class="sp-side-tab-icon">{{ people_icon }}<span class="sp-pulse-dot" aria-hidden="true"></span></span>
             <span id="sp-side-count-{{ block.id }}" class="sp-side-badge-count">0</span>
@@ -40,7 +40,7 @@
               {% assign metric_note = 'Theo múi giờ cửa hàng' %}
               {% assign metric_icon = views_icon %}
             {% when 'orders' %}
-              {% assign metric_label = 'sản phẩm đã bán' %}
+              {% assign metric_label = 'sản phẩm được đặt' %}
               {% assign metric_note = 'Trong 24 giờ gần nhất' %}
               {% assign metric_icon = sales_icon %}
           {% endcase %}

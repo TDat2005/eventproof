@@ -8,16 +8,41 @@
   const trigger = byId("sp-side-trigger");
   const panel = byId("sp-side-panel");
   const container = byId("sp-widget");
+  const shell = byId("sp-side-shell");
+  let closeTimer;
+  const cancelClose = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = null;
+  };
+  const open = () => {
+    cancelClose();
+    shell?.classList.add("sp-open");
+    panel?.classList.add("active");
+    if (panel) panel.inert = false;
+    trigger?.setAttribute("aria-expanded", "true");
+  };
   const close = () => {
+    cancelClose();
+    shell?.classList.remove("sp-open");
     panel?.classList.remove("active");
     if (panel) panel.inert = true;
     trigger?.setAttribute("aria-expanded", "false");
   };
+  shell?.addEventListener("pointerenter", (event) => {
+    if (event.pointerType === "mouse") open();
+  });
+  shell?.addEventListener("pointerleave", (event) => {
+    if (event.pointerType !== "mouse") return;
+    cancelClose();
+    closeTimer = setTimeout(() => {
+      // Keep keyboard interaction inside the panel available after hover ends.
+      if (!panel?.contains(document.activeElement)) close();
+    }, 180);
+  });
   trigger?.addEventListener("click", (event) => {
     event.stopPropagation();
-    const open = panel?.classList.toggle("active");
-    if (panel) panel.inert = !open;
-    trigger?.setAttribute("aria-expanded", String(Boolean(open)));
+    if (panel?.classList.contains("active")) close();
+    else open();
   });
   byId("sp-panel-close")?.addEventListener("click", close);
   document.addEventListener("keydown", (event) => {
@@ -178,6 +203,7 @@
   document.addEventListener("shopify:section:unload", (event) => {
     if (event.target.contains(script)) {
       disposed = true;
+      close();
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("visitorConsentCollected", sync);

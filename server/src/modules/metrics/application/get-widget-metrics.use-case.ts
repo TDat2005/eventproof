@@ -54,7 +54,11 @@ export class GetWidgetMetricsUseCase {
           )
         : { recentViewers: 0, viewsToday: 0 },
       resolvedProductId
-        ? this.orderSyncService.getSalesMetrics(tenantId, resolvedProductId)
+        ? this.orderSyncService.getSalesMetrics(
+            tenantId,
+            resolvedProductId,
+            shopDomain,
+          )
         : 0,
       this.settingsService.getSettings(tenantId),
     ]);

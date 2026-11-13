@@ -13,8 +13,10 @@ automatically_update_urls_on_dev = true
 api_version = "2026-10"
 
 [[webhooks.subscriptions]]
-topics = ["orders/create", "orders/updated", "orders/cancelled"]
+# Requires Protected customer data access in the app dashboard, even on dev stores.
+topics = ["orders/create"]
 uri = "/api/webhooks/orders"
+include_fields = ["id", "created_at", "test", "line_items"]
 
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]

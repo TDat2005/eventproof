@@ -28,15 +28,25 @@ function browser(
     },
     hidden: false,
     getElementById(id: string) {
-      if (!nodes.has(id))
+      if (!nodes.has(id)) {
+        const classes = new Set<string>();
+        const listeners: Record<string, (event: any) => void> = {};
         nodes.set(id, {
           style: {},
           textContent: '',
-          classList: { remove: vi.fn(), toggle: vi.fn() },
-          addEventListener: vi.fn(),
+          classList: {
+            add: (name: string) => classes.add(name),
+            remove: (name: string) => classes.delete(name),
+            contains: (name: string) => classes.has(name),
+          },
+          listeners,
+          addEventListener: (name: string, callback: (event: any) => void) => {
+            listeners[name] = callback;
+          },
           setAttribute: vi.fn(),
           contains: () => false,
         });
+      }
       return nodes.get(id);
     },
     addEventListener(name: string, callback: () => void) {
@@ -86,12 +96,48 @@ function browser(
       return timers.length;
     },
     clearInterval: vi.fn(),
+    setTimeout,
+    clearTimeout,
   };
   runInNewContext(source, context);
   return { context, fetch, nodes, events, timers, document };
 }
 
 describe('Storefront widget behavior', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('opens on mouse hover, tolerates movement into the panel, and closes after leaving', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const page = browser();
+    await drain();
+    const shell = page.nodes.get('sp-side-shell-one');
+    const panel = page.nodes.get('sp-side-panel-one');
+    shell.listeners.pointerenter({ pointerType: 'mouse' });
+    expect(panel.classList.contains('active')).toBe(true);
+    expect(panel.inert).toBe(false);
+    shell.listeners.pointerleave({ pointerType: 'mouse' });
+    vi.advanceTimersByTime(100);
+    shell.listeners.pointerenter({ pointerType: 'mouse' });
+    vi.advanceTimersByTime(200);
+    expect(panel.classList.contains('active')).toBe(true);
+    shell.listeners.pointerleave({ pointerType: 'mouse' });
+    vi.advanceTimersByTime(200);
+    expect(panel.classList.contains('active')).toBe(false);
+  });
+
+  it('keeps touch interaction click-based', async () => {
+    const page = browser();
+    await drain();
+    const shell = page.nodes.get('sp-side-shell-one');
+    const panel = page.nodes.get('sp-side-panel-one');
+    const trigger = page.nodes.get('sp-side-trigger-one');
+    shell.listeners.pointerenter({ pointerType: 'touch' });
+    expect(panel.classList.contains('active')).toBe(false);
+    trigger.listeners.click({ stopPropagation() {} });
+    expect(panel.classList.contains('active')).toBe(true);
+    trigger.listeners.click({ stopPropagation() {} });
+    expect(panel.classList.contains('active')).toBe(false);
+  });
   it('records one page view while each refresh only heartbeats and reads metrics', async () => {
     const page = browser();
     await drain();
